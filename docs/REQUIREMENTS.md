@@ -45,5 +45,23 @@ acknowledgement, not guardian contact details or delivery information.
 - Anonymous submissions have validation, abuse protection and safe acknowledgement.
 - Mobile UI clearly shows the selected child and previews public disclosure before saving.
 
-Implementation details are provisional until recorded in an accepted decision.
-The scaffold does not implement these journeys yet.
+Implementation status is maintained in STATUS.md; detailed current choices are in ADR 0003.
+
+## First working milestone (additional user requirements)
+- Registration/login and immediate sample QR creation.
+- Generic label targets can be a child, adult/parent or family; an optional specific
+  item belongs to any of those targets. UUIDs identify objects; QR payloads contain no PII.
+- Backend controls information shown on scans and notification recipients.
+- Parents print their own sheets, with optional names or custom human-readable text
+  below the QR and fun nowearnow branding. Physical text is independent from online
+  disclosure and defaults blank; parents may knowingly put names on clothes/objects.
+- Django built-in admin for site management.
+- Email integration; SMS/Twilio is secondary and deferred.
+
+## Object-first sheet builder (latest user refinement)
+Users create objects, then choose the quantity of each to print together: for example,
+one laptop, one calculator, four clothing labels for one child and four for another.
+Each object has a stable QR; repeated copies share it. Objects may be specific items
+or reusable groups of belongings linked to a child/adult/family. A mixed sheet can
+cross profile boundaries only where the signed-in user has explicit access.
+Quantities determine layout, never ownership, disclosure or notification recipients.

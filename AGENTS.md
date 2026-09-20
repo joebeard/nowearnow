@@ -13,6 +13,8 @@ REST API. Repository root: /home/jbeard/git/nowearnow.
 - Parents control disclosure. Default to no personal information shared.
 - Enforce disclosure and ownership on the server, never only in React.
 - Each public field requires explicit opt-in; new fields default to hidden.
+- Printed names/text are a separate, optional physical disclosure; never copy them
+  into the public scan response automatically.
 - QR codes contain opaque random tokens, never personal data or sequential IDs.
 - A scan is not authentication, ownership proof, or permission to claim a label.
 - Keep child profiles separate from adult accounts; do not build child logins.
@@ -31,7 +33,8 @@ REST API. Repository root: /home/jbeard/git/nowearnow.
 - Explicitly review any AllowAny view and allowlist every public response field.
 - Use Django session authentication with CSRF for the web app; never disable CSRF
   to make integration work. Native-app authentication is undecided.
-- Scope child/item queries and writes to active guardian grants and action permissions.
+- Scope profile/item queries and writes to active guardian grants and action permissions.
+  Profiles may represent a child, adult or family; family grants do not imply child access.
   Keep purchaser ownership separate from child-management access.
 - Keep secrets out of Git; no production defaults or silent development fallbacks.
 - Keep dependencies and lockfiles aligned. Run `make check` for code changes.

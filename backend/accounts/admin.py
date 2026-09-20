@@ -1,8 +1,10 @@
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
 from .models import User
 
+admin.site.site_url = settings.PUBLIC_BASE_URL
 admin.site.site_header = "nowearnow administration"
 admin.site.site_title = "nowearnow admin"
 admin.site.index_title = "Site management"

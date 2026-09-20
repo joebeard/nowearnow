@@ -71,7 +71,7 @@ class LabelFlowTests(TestCase):
                 )
                 self.assertEqual(response.status_code, 201)
                 label = Label.objects.get(pk=response.json()["id"])
-                self.assertEqual(label.item.name if label.item else "", item)
+                self.assertEqual(label.item.name, item or "General belongings")
                 self.assertFalse(label.share_text)
                 self.assertEqual(label.token.version, 4)
                 self.assertNotIn("Private", response.json()["scan_url"])

@@ -1,7 +1,10 @@
 import { StrictMode, useEffect, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
+import { submissionId } from "./id";
 import "./style.css";
+import { SheetBuilder } from "./SheetBuilder";
+import type { Label, Belonging } from "./types";
 
 type User = { username: string; email_verified: boolean };
 type Profile = {
@@ -10,17 +13,6 @@ type Profile = {
   kind: string;
   controller: boolean;
   email_alerts: boolean;
-};
-type Label = {
-  id: string;
-  profile: string;
-  item_name: string;
-  print_text: string;
-  public_text: string;
-  share_text: boolean;
-  active: boolean;
-  scan_url: string;
-  qr_url: string;
 };
 type Report = {
   id: string;
@@ -47,26 +39,6 @@ function Brand() {
     </a>
   );
 }
-function Sticker({ label, onLoad }: { label: Label; onLoad?: () => void }) {
-  return (
-    <div className="sticker">
-      <div className="sticker-brand">
-        nowearnow<span aria-hidden="true">✿</span>
-      </div>
-      <img
-        src={label.qr_url}
-        alt="Scan to help return this item"
-        onLoad={onLoad}
-      />
-      {label.print_text && (
-        <div className="sticker-name">{label.print_text}</div>
-      )}
-      <div className="sticker-footer">
-        found me? scan me! <span aria-hidden="true">↗</span>
-      </div>
-    </div>
-  );
-}
 function Finder() {
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -74,7 +46,7 @@ function Finder() {
   const [website, setWebsite] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [submission] = useState(() => crypto.randomUUID());
+  const [submission] = useState(submissionId);
   useEffect(() => {
     api<{ public_text: string }>(`scan/${scanToken}/`)
       .then((x) => setInfo(x.public_text))
@@ -339,18 +311,16 @@ function Dashboard({
   setUser: (u: User | null) => void;
 }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [labels, setLabels] = useState<Label[]>([]);
+  const [objects, setObjects] = useState<Belonging[]>([]);
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [reports, setReports] = useState<Report[]>([]);
   const [selected, setSelected] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [printing, setPrinting] = useState<Label | null>(null);
-  const [copies, setCopies] = useState(18);
-  const [loaded, setLoaded] = useState(0);
-  const [paper, setPaper] = useState("A4");
   const [members, setMembers] = useState<Access[]>([]);
   const [itemName, setItemName] = useState("");
+  const [objectKind, setObjectKind] = useState("item");
   const [printText, setPrintText] = useState("");
   const [publicText, setPublicText] = useState("");
   const [shareText, setShareText] = useState(false);
@@ -358,11 +328,11 @@ function Dashboard({
   async function refresh() {
     const [p, l, m] = await Promise.all([
       api<Profile[]>("profiles/"),
-      api<Label[]>("labels/"),
+      api<Belonging[]>("objects/"),
       api<Report[]>("inbox/"),
     ]);
     setProfiles(p);
-    setLabels(l);
+    setObjects(l);
     setReports(m);
     setSelected((old) => (p.some((x) => x.id === old) ? old : p[0]?.id || ""));
   }
@@ -412,23 +382,17 @@ function Dashboard({
         id = p.id;
         setSelected(id);
       }
-      const l = await api<Label>("labels/", "POST", {
+      const object = await api<Belonging>("objects/", "POST", {
         profile: id,
-        item_name: "",
+        name: "Sample belongings",
+        kind: "group",
         print_text: "",
         public_text: "",
         share_text: false,
       });
-      setLoaded(0);
-      setPrinting(l);
-    }, "Sample label ready. No personal information is public.");
+      setQuantities((old) => ({ ...old, [object.id]: 1 }));
+    }, "Sample object ready. Choose quantities below to preview its QR.");
   }
-  function printLabel(l: Label) {
-    setLoaded(0);
-    setPrinting(l);
-  }
-  const localQR =
-    printing && /^http:\/\/(127\.0\.0\.1|localhost)/.test(printing.scan_url);
   return (
     <>
       <div className="dashboard-heading no-print">
@@ -636,31 +600,53 @@ function Dashboard({
           )}
         </aside>
         <section className="panel">
-          <h2>A label with a little personality</h2>
-          <p>Make a general label, or give one particular thing its own QR.</p>
+          <h2>Add an object</h2>
+          <p>
+            A laptop, a calculator, or a reusable group such as clothing. Each
+            object gets its own QR.
+          </p>
           <form
             onSubmit={(e) => {
               e.preventDefault();
               act(async () => {
-                const l = await api<Label>("labels/", "POST", {
+                await api<Belonging>("objects/", "POST", {
                   profile: selected,
-                  item_name: itemName,
+                  name: itemName,
+                  kind: objectKind,
                   print_text: printText,
                   public_text: publicText,
                   share_text: shareText,
                 });
-                printLabel(l);
-              }, "Label created.");
+                setItemName("");
+                setPrintText("");
+                setPublicText("");
+                setShareText(false);
+              }, "Object added. Choose how many labels to print in the sheet builder.");
             }}
           >
             <label>
-              Specific item <span className="hint">optional</span>
+              Object name
               <input
+                required
                 maxLength={100}
                 value={itemName}
                 onChange={(e) => setItemName(e.target.value)}
-                placeholder="Laptop, jumper… Leave blank for a general label"
+                placeholder="Laptop, calculator, clothing…"
               />
+            </label>
+            <p className="hint">
+              This name is for your object list. It is not automatically printed
+              or shown to a finder.
+            </p>
+            <label>
+              Object type
+              <select
+                value={objectKind}
+                onChange={(e) => setObjectKind(e.target.value)}
+              >
+                <option value="item">Specific item</option>
+                <option value="group">Reusable group of belongings</option>
+              </select>
             </label>
             <label>
               Text printed under the QR <span className="hint">optional</span>
@@ -702,91 +688,137 @@ function Dashboard({
               </p>
               <small>Plus a private message form.</small>
             </div>
-            <button disabled={busy || !selected}>Create label & preview</button>
+            <button disabled={busy || !selected}>Create object</button>
           </form>
         </section>
       </div>
       <section className="no-print">
-        <h2>Your labels</h2>
-        {!labels.length && (
-          <p>No labels yet. Start with a sample or create your own above.</p>
+        <h2>Your objects</h2>
+        {!objects.length && (
+          <p>No objects yet. Add one above or make a sample.</p>
         )}
+        <p className="hint">
+          Showing objects for {profile?.name || "your selected profile"}. The
+          sheet builder below combines all your profiles.
+        </p>
         <div className="label-grid">
-          {labels
-            .filter((l) => l.profile === selected)
-            .map((l) => (
-              <article key={l.id} className="panel label-card">
-                <span className="tag">{l.active ? "Active" : "Disabled"}</span>
-                <h3>{l.item_name || "General label"}</h3>
-                <p>{l.print_text || "No printed name"}</p>
-                <p className="hint">
-                  Scan text:{" "}
-                  {l.share_text ? l.public_text || "(empty)" : "hidden"}
-                </p>
-                <div className="button-row">
-                  <button disabled={!l.active} onClick={() => printLabel(l)}>
-                    Print sheet
-                  </button>
-                  <a
-                    className="button secondary"
-                    href={l.scan_url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Preview scan
-                  </a>
-                </div>
-                <button
-                  className="text-button"
-                  disabled={busy || (!l.active && !profile?.controller)}
-                  onClick={() =>
-                    act(
-                      () =>
-                        api(`labels/${l.id}/`, "PATCH", { active: !l.active }),
-                      l.active ? "Label disabled." : "Label enabled.",
-                    )
-                  }
-                >
-                  {l.active ? "Disable QR" : "Enable QR"}
-                </button>
-                {l.share_text && (
+          {objects
+            .filter((o) => o.profile === selected)
+            .map((o) => {
+              const l = o.label;
+              return (
+                <article key={o.id} className="panel label-card">
+                  <span className="tag">
+                    {o.kind === "group" ? "Reusable group" : "Specific item"}
+                    {!l.active && " · Disabled"}
+                  </span>
+                  <h3>{o.name}</h3>
+                  <p>{l.print_text || "No printed name"}</p>
+                  <p className="hint">
+                    Scan text:{" "}
+                    {l.share_text ? l.public_text || "(empty)" : "hidden"}
+                  </p>
+                  <div className="button-row">
+                    <button
+                      disabled={!l.active}
+                      onClick={() => {
+                        setQuantities((old) => ({
+                          ...old,
+                          [o.id]: Math.min(180, (old[o.id] || 0) + 1),
+                        }));
+                        setNotice(
+                          `One ${o.name} label added to your sheet selection.`,
+                        );
+                      }}
+                    >
+                      Add one to sheet
+                    </button>
+                    <a
+                      className="button secondary"
+                      href={l.scan_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Preview scan
+                    </a>
+                  </div>
                   <button
                     className="text-button"
-                    disabled={busy}
+                    disabled={busy || (!l.active && !profile?.controller)}
                     onClick={() =>
                       act(
                         () =>
                           api(`labels/${l.id}/`, "PATCH", {
-                            share_text: false,
+                            active: !l.active,
                           }),
-                        "Public text hidden.",
+                        l.active ? "QR disabled." : "QR enabled.",
                       )
                     }
                   >
-                    Hide scan text
+                    {l.active ? "Disable QR" : "Enable QR"}
                   </button>
-                )}
-                <LabelEditor
-                  label={l}
-                  controller={!!profile?.controller}
-                  busy={busy}
-                  save={(changes) =>
-                    act(async () => {
-                      const updated = await api<Label>(
-                        `labels/${l.id}/`,
-                        "PATCH",
-                        changes,
-                      );
-                      if (printing?.id === l.id) {
-                        setPrinting(updated);
+                  {l.share_text && (
+                    <button
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() =>
+                        act(
+                          () =>
+                            api(`labels/${l.id}/`, "PATCH", {
+                              share_text: false,
+                            }),
+                          "Public text hidden.",
+                        )
                       }
-                    }, "Label text saved.")
-                  }
-                />
-              </article>
-            ))}
+                    >
+                      Hide scan text
+                    </button>
+                  )}
+                  <details>
+                    <summary>Rename object</summary>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const name = new FormData(e.currentTarget).get("name");
+                        act(
+                          () => api(`objects/${o.id}/`, "PATCH", { name }),
+                          "Object renamed. Its QR is unchanged.",
+                        );
+                      }}
+                    >
+                      <label>
+                        Private object name
+                        <input
+                          name="name"
+                          required
+                          maxLength={100}
+                          defaultValue={o.name}
+                        />
+                      </label>
+                      <button disabled={busy}>Save object name</button>
+                    </form>
+                  </details>
+                  <LabelEditor
+                    label={l}
+                    controller={!!profile?.controller}
+                    busy={busy}
+                    save={(changes) =>
+                      act(
+                        () => api(`labels/${l.id}/`, "PATCH", changes),
+                        "Label text saved.",
+                      )
+                    }
+                  />
+                </article>
+              );
+            })}
         </div>
       </section>
+      <SheetBuilder
+        objects={objects}
+        quantities={quantities}
+        setQuantities={setQuantities}
+      />
       <section className="panel no-print inbox">
         <div className="button-row">
           <h2>Found-item messages</h2>
@@ -810,75 +842,6 @@ function Dashboard({
           </article>
         ))}
       </section>
-      {printing && (
-        <section className="print-preview">
-          <div className="panel no-print">
-            <div className="button-row">
-              <h2>Your happy little labels</h2>
-              <button className="text-button" onClick={() => setPrinting(null)}>
-                Close preview
-              </button>
-            </div>
-            <p>
-              {printing.print_text
-                ? "Your chosen text will be printed under each QR."
-                : "No name or personal information will be printed."}
-            </p>
-            {localQR && (
-              <p className="notice">
-                Local sample: this QR opens this computer’s loopback address. To
-                scan from a phone, configure PUBLIC_BASE_URL to an address the
-                phone can reach before printing.
-              </p>
-            )}
-            <div className="print-controls">
-              <label>
-                Copies
-                <select
-                  value={copies}
-                  onChange={(e) => {
-                    setCopies(Number(e.target.value));
-                    setLoaded(0);
-                  }}
-                >
-                  {[1, 6, 12, 18].map((n) => (
-                    <option key={n}>{n}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Paper
-                <select
-                  value={paper}
-                  onChange={(e) => setPaper(e.target.value)}
-                >
-                  <option>A4</option>
-                  <option>Letter</option>
-                </select>
-              </label>
-              <button disabled={loaded < copies} onClick={() => window.print()}>
-                {loaded < copies ? "Loading QR codes…" : "Print / save PDF"}
-              </button>
-            </div>
-            <p className="hint">
-              18-up cut-out layout: 3 × 6 labels, each 60 × 40 mm. Print at 100%
-              / actual size, with browser headers and footers off. Use
-              full-sheet adhesive paper and cut out; this is not a preset for
-              pre-cut label stock.
-            </p>
-          </div>
-          <style>{`@media print { @page { size: ${paper}; margin: 10mm; } }`}</style>
-          <div className="sheet" key={`${printing.id}-${copies}`}>
-            {Array.from({ length: copies }, (_, i) => (
-              <Sticker
-                key={i}
-                label={printing}
-                onLoad={() => setLoaded((n) => n + 1)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
     </>
   );
 }

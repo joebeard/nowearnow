@@ -2,46 +2,54 @@
 
 Updated: 2026-09-20.
 
-## Implemented
-- Django/DRF and React/TypeScript/Vite development scaffold.
-- Adult account model, minimal versioned health endpoint, API privacy defaults.
-- Responsive placeholder page, local commands, dependency locks and CI definition.
-- AGENTS.md, Claude compatibility import, architecture, privacy requirements and ADR.
-
-## Next work
-1. Design per-child guardian grants, invitations/revocation, disclosure authority and
-   the permitted public fields; confirmed journeys are in REQUIREMENTS.md.
-2. Design registration, verified contact, session login and account recovery.
-3. Implement child-linked items/labels with guardian permissions and separate claim
-   credentials and scan tokens.
-4. Implement the approved-info scan page and finder message form, private relay,
-   multi-guardian alerts and explicit disclosure settings with boundary tests.
-5. Design commerce/printing and production infrastructure after those boundaries.
-
-## Open questions
-Launch countries and hosting region; minimum private child record fields;
-field-level disclosure catalogue and authority/conflict rules; guardian invitation/
-removal authority and historical message access; label activation/fulfilment;
-email/SMS relay and notification preferences; retention periods; school involvement.
-
-## Latest requirements update
-Confirmed multi-guardian/multi-child management, co-parenting and blended families,
-multi-recipient alerts, and a scan page combining approved info with a finder form.
-Recorded in REQUIREMENTS.md and ADR 0002; these workflows are not yet implemented.
-Documentation checked for consistency; no executable code changed in this update.
+## Implemented locally
+- Registration/login/logout with Django sessions, password validation, CSRF and throttling.
+- Email verification, recipient-bound co-guardian invitations, access revocation and
+  per-profile opted-in alerts. Custom adult user model; case-insensitive unique email.
+- Child/adult/family Profile, Access, first-class Item (specific/group), one-to-one Label,
+  Report and Delivery models. Existing generic labels migrated with QR tokens preserved.
+- Sample QR creation; generic/item-specific labels; separate UUID scan token containing
+  no PII; private-by-default online text; optional human-readable printed names/text.
+- Object creation/renaming, editable printed/online text, disable/hide controls.
+- Mixed-quantity branded 18-up A4/Letter sheets across profiles, automatic pagination
+  and a server-validated preview (up to 180 labels). Quantities are not persisted.
+- Public scan page and finder message form; private guardian inbox and idempotent reports.
+- Configurable SMTP email integration with file delivery as the local default. Explicit
+  `make notifications` worker checks current permission and retries recipient failures.
+- Django admin for site management. User-requested local `admin` superuser created in
+  the ignored database; no test credentials are seeded by source or migrations.
+- Documentation, migrations, lockfiles and CI/check commands updated.
 
 ## Validation
-Passed initial verification:
-- Dependency installation and frozen Python lockfile sync.
-- Database migration on a fresh local SQLite database; no migration drift.
-- Ruff lint and formatting; Django system checks.
-- Four API boundary tests: minimal public health response, anonymous denial by
-  default, no-store on denied responses, and health write rejection.
-- TypeScript type checking and Vite production build.
-- npm install audit reported zero known vulnerabilities at installation time.
+- `make check` passed: Ruff, formatting, Django system/migration checks, 35 backend tests,
+  TypeScript and production frontend build. Migrations applied to the local database.
+- Backend tests cover auth/CSRF, verification, guardian isolation/invitations/revocation,
+  disclosure, idempotent reports, multi-recipient delivery/retries, admin permissions,
+  object/QR identity, mixed 1/1/4/4 sheets, pagination and invalid selections.
+- Browser verified login, sample QR, optional printed text, hidden scan text, finder
+  submission/inbox, real local admin login, object creation and a 10-label mixed preview
+  across a family and two synthetic children.
+- Generated SVG was rasterized and decoded successfully to its exact UUID scan URL,
+  with no printed/public text embedded. Temporary QA libraries were not added to runtime.
+- Desktop preview visually inspected. Embedded browser viewport overrides did not take
+  effect, so mobile device QA remains unverified. Physical printing is unverified.
 
-No browser/device QA or production infrastructure validation has been performed.
+## Next work / release gates
+- Product review of controller authority, custody/disputes, guardian removal/succession.
+- Account recovery, email change/reverification and full account/profile lifecycle.
+- Production PostgreSQL, hosting/HTTPS/secrets, shared rate limits (including admin),
+  queue supervision/backoff/provider idempotency, proxy log redaction and security review.
+- Decide jurisdiction/data region, retention/deletion/export, staff support access,
+  processors, privacy obligations and school involvement before real family data.
+- Select SMTP provider/domain authentication; Twilio/SMS remains deferred.
+- Test physical printer/scanner output and add pre-cut label-stock presets if desired.
+- Commerce, ordering, label claims for purchased stock and fulfilment remain future work.
 
-## Limits
-No business workflow or production deployment exists. No Git remote selected.
-Production entry points deliberately fail closed. This is not ready for real family data.
+## Local notes
+No deployment to nowearnow.com, Git remote or commit. Production settings deliberately
+refuse startup. Existing frontend/backend local processes were already running and
+were left in place. Use README.md for setup, phone scanning, print and email instructions.
+
+Synthetic local test data: the admin account has sample family/child profiles and
+objects used to verify mixed sheets. No real child data was entered. A separate QA
+account used for finder-flow verification is now inactive with an unusable password.

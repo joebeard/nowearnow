@@ -32,7 +32,8 @@ class AccessAdmin(admin.ModelAdmin):
 
 @admin.register(Item)
 class ItemAdmin(admin.ModelAdmin):
-    list_display = ("name", "profile")
+    list_display = ("name", "profile", "kind")
+    list_filter = ("kind",)
     search_fields = ("name",)
     autocomplete_fields = ("profile",)
     readonly_fields = ("id",)
@@ -40,9 +41,16 @@ class ItemAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         return (*self.readonly_fields, "profile") if obj else self.readonly_fields
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        Label.objects.get_or_create(item=obj, defaults={"profile": obj.profile})
+
 
 @admin.register(Label)
 class LabelAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
     list_display = ("id", "profile", "item", "active", "share_text")
     list_filter = ("active", "share_text")
     search_fields = ("id", "profile__name", "item__name")

@@ -1,3 +1,6 @@
+import time
+from unittest.mock import patch
+
 from django.core import mail, signing
 from django.core.cache import cache
 from django.test import TestCase, override_settings
@@ -93,3 +96,24 @@ class AuthTests(TestCase):
             self.client.post("/api/v1/auth/login/", {}, HTTP_X_CSRFTOKEN=self.token()).status_code,
             429,
         )
+
+    def test_verification_rejects_expired_token(self):
+        self.client.force_login(self.user)
+        with patch("django.core.signing.time.time", return_value=time.time() - 90000):
+            token = signing.dumps({"user": self.user.pk, "email": self.user.email}, salt="email")
+        response = self.client.post(
+            "/api/v1/auth/verify/confirm/", {"token": token}, HTTP_X_CSRFTOKEN=self.token()
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_login_rejects_untrusted_origin(self):
+        response = self.client.post(
+            "/api/v1/auth/login/",
+            {
+                "username": "guardian",
+                "password": "Long-test-Phrase-749!",
+            },
+            HTTP_X_CSRFTOKEN=self.token(),
+            HTTP_ORIGIN="https://untrusted.example",
+        )
+        self.assertEqual(response.status_code, 403)

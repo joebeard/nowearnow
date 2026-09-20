@@ -149,7 +149,7 @@ class QRView(APIView):
         qr.add_data(f"{settings.PUBLIC_BASE_URL}/s/{label.token}")
         qr.make(fit=True)
         out = BytesIO()
-        qr.make_image(image_factory=qrcode.image.svg.SvgPathImage).save(out)
+        qr.make_image(image_factory=qrcode.image.svg.SvgPathFillImage).save(out)
         return HttpResponse(out.getvalue(), content_type="image/svg+xml")
 
 
@@ -320,3 +320,124 @@ class AccessView(APIView):
         access.save(update_fields=["active", "email_alerts"])
         Invitation.objects.filter(profile_id=pk, email=access.user.email, accepted=False).delete()
         return Response(status=204)
+
+
+class ObjectInput(LabelInput):
+    name = serializers.CharField(max_length=100)
+    kind = serializers.ChoiceField(choices=Item.Kind.choices, default=Item.Kind.ITEM)
+
+
+def object_data(item):
+    return {
+        "id": str(item.pk),
+        "name": item.name,
+        "kind": item.kind,
+        "profile": str(item.profile_id),
+        "profile_name": item.profile.name,
+        "label": label_data(item.label),
+    }
+
+
+class ObjectsView(APIView):
+    def get(self, request):
+        objects = Item.objects.filter(
+            profile__accesses__user=request.user,
+            profile__accesses__active=True,
+            label__isnull=False,
+        )
+        return Response(
+            [
+                object_data(item)
+                for item in objects.select_related("label__item", "profile").order_by(
+                    "profile__created_at", "name", "pk"
+                )
+            ]
+        )
+
+    def post(self, request):
+        data = ObjectInput(data=request.data)
+        data.is_valid(raise_exception=True)
+        fields = data.validated_data
+        access = access_for(request.user, fields["profile"])
+        if fields["share_text"] and not access.controller:
+            raise PermissionDenied("Only the profile creator can opt into public text.")
+        with transaction.atomic():
+            item = Item.objects.create(
+                profile=access.profile, name=fields["name"], kind=fields["kind"]
+            )
+            Label.objects.create(
+                profile=access.profile,
+                item=item,
+                print_text=fields.get("print_text", ""),
+                public_text=fields.get("public_text", ""),
+                share_text=fields["share_text"],
+            )
+        return Response(object_data(item), status=201)
+
+
+class ObjectChanges(serializers.Serializer):
+    name = serializers.CharField(max_length=100)
+
+
+class ObjectView(APIView):
+    def patch(self, request, pk):
+        item = get_object_or_404(Item, pk=pk)
+        access_for(request.user, item.profile_id)
+        data = ObjectChanges(data=request.data)
+        data.is_valid(raise_exception=True)
+        item.name = data.validated_data["name"]
+        item.save(update_fields=["name"])
+        return Response(object_data(item))
+
+
+class SheetEntry(serializers.Serializer):
+    object_id = serializers.UUIDField()
+    quantity = serializers.IntegerField(min_value=1, max_value=180)
+
+
+class SheetInput(serializers.Serializer):
+    entries = SheetEntry(many=True, allow_empty=False, max_length=180)
+    paper = serializers.ChoiceField(choices=["A4", "Letter"], default="A4")
+
+    def validate_entries(self, entries):
+        ids = [e["object_id"] for e in entries]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError("Choose each object once and set its quantity.")
+        if sum(e["quantity"] for e in entries) > 180:
+            raise serializers.ValidationError("Choose at most 180 labels per print run.")
+        return entries
+
+
+class SheetPreviewView(APIView):
+    def post(self, request):
+        data = SheetInput(data=request.data)
+        data.is_valid(raise_exception=True)
+        entries = data.validated_data["entries"]
+        allowed = Item.objects.filter(
+            pk__in=[e["object_id"] for e in entries],
+            profile__accesses__user=request.user,
+            profile__accesses__active=True,
+            label__active=True,
+        )
+        objects = {item.pk: item for item in allowed.select_related("label__item", "profile")}
+        if len(objects) != len(entries):
+            raise ValidationError(
+                "One or more objects are unavailable. Refresh your objects and try again."
+            )
+        cells = []
+        for entry in entries:
+            item = objects[entry["object_id"]]
+            cell = {
+                **label_data(item.label),
+                "object_id": str(item.pk),
+                "object_name": item.name,
+                "profile_name": item.profile.name,
+            }
+            cells.extend([cell] * entry["quantity"])
+        return Response(
+            {
+                "paper": data.validated_data["paper"],
+                "total": len(cells),
+                "sheets": [cells[i : i + 18] for i in range(0, len(cells), 18)],
+            }
+        )

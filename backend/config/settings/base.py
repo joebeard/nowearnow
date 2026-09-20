@@ -1,5 +1,8 @@
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
@@ -61,6 +64,20 @@ X_FRAME_OPTIONS = "DENY"
 
 # Public URLs are configured, never derived from untrusted request Host headers.
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:5173").rstrip("/")
+_public_url = urlsplit(PUBLIC_BASE_URL)
+if (
+    _public_url.scheme not in {"http", "https"}
+    or not _public_url.netloc
+    or _public_url.username
+    or _public_url.password
+    or _public_url.path
+    or _public_url.query
+    or _public_url.fragment
+):
+    raise ImproperlyConfigured(
+        "PUBLIC_BASE_URL must be an HTTP(S) origin without credentials or a path."
+    )
+
 EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.filebased.EmailBackend")
 EMAIL_FILE_PATH = BASE_DIR / "dev-emails"
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
