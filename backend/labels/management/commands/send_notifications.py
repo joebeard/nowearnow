@@ -20,14 +20,15 @@ class Command(BaseCommand):
             with transaction.atomic():
                 delivery = (
                     Delivery.objects.select_for_update()
-                    .select_related("access__user", "report")
+                    .select_related("access__user", "access__profile", "report")
                     .get(pk=pk)
                 )
                 if delivery.status not in {"pending", "failed"}:
                     continue
                 access = delivery.access
                 if (
-                    not access.active
+                    access.profile.archived
+                    or not access.active
                     or not access.email_alerts
                     or not access.user.is_active
                     or not access.user.email_verified

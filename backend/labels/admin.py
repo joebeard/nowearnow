@@ -1,14 +1,26 @@
 from django.contrib import admin
 
-from .models import Access, Delivery, Invitation, Item, Label, Profile, Report
+from .models import Access, Delivery, FamilyMembership, Invitation, Item, Label, Profile, Report
 
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ("name", "kind", "created_at")
-    list_filter = ("kind",)
+    list_display = ("name", "kind", "archived", "created_at")
+    list_filter = ("kind", "archived")
     search_fields = ("name",)
     readonly_fields = ("id", "created_at")
+
+    def get_readonly_fields(self, request, obj=None):
+        return (*self.readonly_fields, "kind") if obj else self.readonly_fields
+
+
+@admin.register(FamilyMembership)
+class FamilyMembershipAdmin(admin.ModelAdmin):
+    list_display = ("family", "member")
+    autocomplete_fields = ("family", "member")
+
+    def get_readonly_fields(self, request, obj=None):
+        return ("family", "member") if obj else ()
 
 
 @admin.register(Access)

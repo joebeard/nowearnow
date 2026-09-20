@@ -14,10 +14,60 @@ class Profile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     kind = models.CharField(max_length=10, choices=Kind.choices)
     name = models.CharField(max_length=80)  # Private dashboard name, never public automatically.
+    archived = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            archiving = (
+                self.archived and type(self).objects.filter(pk=self.pk, archived=False).exists()
+            )
+            super().save(*args, **kwargs)
+            if archiving:
+                Label.objects.filter(profile=self).update(active=False)
+                Access.objects.filter(profile=self).update(email_alerts=False)
+                Delivery.objects.filter(
+                    report__label__profile=self, status__in=["pending", "failed"]
+                ).update(status="skipped")
+                Invitation.objects.filter(profile=self, accepted=False).delete()
 
     def __str__(self):
         return self.name
+
+
+class FamilyMembership(models.Model):
+    """Organization only: linking a child/adult never grants access to them."""
+
+    family = models.ForeignKey(
+        Profile,
+        on_delete=models.CASCADE,
+        related_name="family_memberships",
+        limit_choices_to={"kind": "family"},
+    )
+    member = models.ForeignKey(
+        Profile,
+        on_delete=models.CASCADE,
+        related_name="family_links",
+        limit_choices_to={"kind__in": ["child", "adult"]},
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["family", "member"], name="one_family_membership")
+        ]
+
+    def clean(self):
+        if self.family_id and (self.family.kind != Profile.Kind.FAMILY or self.family.archived):
+            raise ValidationError({"family": "Choose an active family profile."})
+        if self.member_id and (self.member.kind == Profile.Kind.FAMILY or self.member.archived):
+            raise ValidationError({"member": "Choose an active child or adult profile."})
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.family.name}: {self.member.name}"
 
 
 class Access(models.Model):
@@ -79,6 +129,8 @@ class Label(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def clean(self):
+        if self.profile_id and self.profile.archived and self.active:
+            raise ValidationError({"active": "Restore this profile before enabling its QR codes."})
         if self.item_id and self.item.profile_id != self.profile_id:
             raise ValidationError({"item": "The item must belong to the selected profile."})
 

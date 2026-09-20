@@ -20,11 +20,16 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
-from .models import Access, Delivery, Invitation, Item, Label, Profile, Report
+from .models import Access, Delivery, FamilyMembership, Invitation, Item, Label, Profile, Report
 
 
-def access_for(user, profile_id, controller=False):
-    access = get_object_or_404(Access, user=user, profile_id=profile_id, active=True)
+def access_for(user, profile_id, controller=False, include_archived=False):
+    query = Access.objects.select_related("profile").filter(
+        user=user, profile_id=profile_id, active=True
+    )
+    if not include_archived:
+        query = query.filter(profile__archived=False)
+    access = get_object_or_404(query)
     if controller and not access.controller:
         raise PermissionDenied("Only the profile creator can manage access and public text.")
     return access
@@ -47,10 +52,18 @@ def label_data(label):
 class ProfileInput(serializers.Serializer):
     name = serializers.CharField(max_length=80)
     kind = serializers.ChoiceField(choices=Profile.Kind.choices)
+    family = serializers.UUIDField(required=False, allow_null=True)
 
 
 class ProfilesView(APIView):
     def get(self, request):
+        accesses = list(
+            Access.objects.filter(user=request.user, active=True)
+            .select_related("profile")
+            .order_by("profile__created_at")
+        )
+        ids = [a.profile_id for a in accesses]
+        links = list(FamilyMembership.objects.filter(family_id__in=ids, member_id__in=ids))
         return Response(
             [
                 {
@@ -59,20 +72,76 @@ class ProfilesView(APIView):
                     "kind": a.profile.kind,
                     "controller": a.controller,
                     "email_alerts": a.email_alerts,
+                    "archived": a.profile.archived,
+                    "families": [
+                        str(link.family_id) for link in links if link.member_id == a.profile_id
+                    ],
+                    "members": [
+                        str(link.member_id) for link in links if link.family_id == a.profile_id
+                    ],
                 }
-                for a in Access.objects.filter(user=request.user, active=True)
-                .select_related("profile")
-                .order_by("profile__created_at")
+                for a in accesses
             ]
         )
 
     def post(self, request):
         data = ProfileInput(data=request.data)
         data.is_valid(raise_exception=True)
+        fields = data.validated_data
+        family_id = fields.pop("family", None)
+        if family_id:
+            if fields["kind"] == Profile.Kind.FAMILY:
+                raise ValidationError("A family cannot be nested inside another family.")
+            family_access = access_for(request.user, family_id, controller=True)
+            if family_access.profile.kind != Profile.Kind.FAMILY:
+                raise ValidationError("Choose a family profile.")
         with transaction.atomic():
-            profile = Profile.objects.create(**data.validated_data)
+            profile = Profile.objects.create(**fields)
             Access.objects.create(profile=profile, user=request.user, controller=True)
+            if family_id:
+                FamilyMembership.objects.create(family_id=family_id, member=profile)
         return Response({"id": str(profile.pk)}, status=201)
+
+
+class ProfileChanges(serializers.Serializer):
+    name = serializers.CharField(max_length=80, required=False)
+    archived = serializers.BooleanField(required=False)
+
+
+class ProfileView(APIView):
+    def patch(self, request, pk):
+        access = access_for(request.user, pk, controller=True, include_archived=True)
+        data = ProfileChanges(data=request.data)
+        data.is_valid(raise_exception=True)
+        for name, value in data.validated_data.items():
+            setattr(access.profile, name, value)
+        access.profile.save()
+        return Response(
+            {"id": str(pk), "name": access.profile.name, "archived": access.profile.archived}
+        )
+
+
+class FamilyMemberInput(serializers.Serializer):
+    profile = serializers.UUIDField()
+
+
+class FamilyMembersView(APIView):
+    def post(self, request, pk):
+        family = access_for(request.user, pk, controller=True).profile
+        data = FamilyMemberInput(data=request.data)
+        data.is_valid(raise_exception=True)
+        member = access_for(request.user, data.validated_data["profile"]).profile
+        if family.kind != Profile.Kind.FAMILY or member.kind == Profile.Kind.FAMILY:
+            raise ValidationError("Link a child or adult to a family profile.")
+        FamilyMembership.objects.get_or_create(family=family, member=member)
+        return Response({"detail": "Profile linked. Guardian access is unchanged."}, status=201)
+
+    def delete(self, request, pk, member_id):
+        family = access_for(request.user, pk, controller=True).profile
+        access_for(request.user, member_id, include_archived=True)
+        link = get_object_or_404(FamilyMembership, family=family, member_id=member_id)
+        link.delete()
+        return Response(status=204)
 
 
 class LabelInput(serializers.Serializer):
@@ -93,7 +162,9 @@ class LabelChanges(serializers.Serializer):
 class LabelsView(APIView):
     def get(self, request):
         labels = Label.objects.filter(
-            profile__accesses__user=request.user, profile__accesses__active=True
+            profile__accesses__user=request.user,
+            profile__accesses__active=True,
+            profile__archived=False,
         ).select_related("item")
         return Response([label_data(label) for label in labels.order_by("-created_at")])
 
@@ -170,11 +241,11 @@ class ScanView(APIView):
     throttle_classes = [FinderThrottle]
 
     def get(self, request, token):
-        label = get_object_or_404(Label, token=token, active=True)
+        label = get_object_or_404(Label, token=token, active=True, profile__archived=False)
         return Response({"public_text": label.public_text if label.share_text else ""})
 
     def post(self, request, token):
-        label = get_object_or_404(Label, token=token, active=True)
+        label = get_object_or_404(Label, token=token, active=True, profile__archived=False)
         data = ReportInput(data=request.data)
         data.is_valid(raise_exception=True)
         fields = data.validated_data
@@ -249,6 +320,31 @@ class InviteThrottle(UserRateThrottle):
 class InvitationsView(APIView):
     throttle_classes = [InviteThrottle]
 
+    def get_throttles(self):
+        return super().get_throttles() if self.request.method == "POST" else []
+
+    def get(self, request, pk):
+        access_for(request.user, pk, controller=True)
+        pending = Invitation.objects.filter(
+            profile_id=pk, accepted=False, created_at__gte=timezone.now() - timedelta(hours=48)
+        )
+        return Response(
+            [
+                {
+                    "id": str(i.pk),
+                    "email": i.email,
+                    "expires_at": (i.created_at + timedelta(hours=48)).isoformat(),
+                }
+                for i in pending.order_by("-created_at")
+            ]
+        )
+
+    def delete(self, request, pk, invite_id):
+        access_for(request.user, pk, controller=True)
+        invite = get_object_or_404(Invitation, profile_id=pk, pk=invite_id, accepted=False)
+        invite.delete()
+        return Response(status=204)
+
     def post(self, request, pk):
         access_for(request.user, pk, controller=True)
         if not request.user.email_verified:
@@ -282,6 +378,7 @@ class AcceptInvitationView(APIView):
                 Invitation.objects.select_for_update(),
                 pk=pk,
                 accepted=False,
+                profile__archived=False,
                 email=request.user.email.lower(),
                 created_at__gte=timezone.now() - timedelta(hours=48),
             )
@@ -344,6 +441,7 @@ class ObjectsView(APIView):
             profile__accesses__user=request.user,
             profile__accesses__active=True,
             label__isnull=False,
+            profile__archived=False,
         )
         return Response(
             [
@@ -418,6 +516,7 @@ class SheetPreviewView(APIView):
             profile__accesses__user=request.user,
             profile__accesses__active=True,
             label__active=True,
+            profile__archived=False,
         )
         objects = {item.pk: item for item in allowed.select_related("label__item", "profile")}
         if len(objects) != len(entries):

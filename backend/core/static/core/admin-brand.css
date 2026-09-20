@@ -1,0 +1,2 @@
+:root, html[data-theme="light"], html[data-theme="dark"] { --primary:#18785f; --secondary:#203442; --accent:#d6f0e6; --link-fg:#18785f; --link-selected-fg:#12664f; --header-bg:#ffffff; --header-color:#203442; --header-link-color:#18785f; --breadcrumbs-bg:#203442; --button-bg:#18785f; --button-hover-bg:#12664f; --default-button-bg:#203442; --default-button-hover-bg:#304b5e; }
+#site-name img { display:block; height:auto; max-width:100%; } #header { border-bottom:1px solid #dfe7eb; } html[data-theme="dark"] { --link-fg:#68cdb0; --link-selected-fg:#9be0ca; }

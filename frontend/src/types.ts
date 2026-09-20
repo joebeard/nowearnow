@@ -26,3 +26,12 @@ export type SheetPreview = {
     profile_name: string;
   })[][];
 };
+
+export type User = { username: string; email_verified: boolean; is_staff?: boolean };
+export type Profile = {
+  id: string; name: string; kind: "child" | "adult" | "family";
+  controller: boolean; email_alerts: boolean; archived: boolean;
+  families: string[]; members: string[];
+};
+export type Report = { id: string; message: string; profile: string; item_name: string; created_at: string };
+export type RunAction = (action: () => Promise<unknown>, message?: string) => Promise<boolean>;

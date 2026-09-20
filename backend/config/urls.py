@@ -14,6 +14,12 @@ urlpatterns = [
     path("api/v1/auth/verify/", accounts.VerificationView.as_view()),
     path("api/v1/auth/verify/confirm/", accounts.ConfirmVerificationView.as_view()),
     path("api/v1/profiles/", labels.ProfilesView.as_view()),
+    path("api/v1/profiles/<uuid:pk>/", labels.ProfileView.as_view()),
+    path("api/v1/families/<uuid:pk>/members/", labels.FamilyMembersView.as_view()),
+    path("api/v1/families/<uuid:pk>/members/<uuid:member_id>/", labels.FamilyMembersView.as_view()),
+    path(
+        "api/v1/profiles/<uuid:pk>/invitations/<uuid:invite_id>/", labels.InvitationsView.as_view()
+    ),
     path("api/v1/profiles/<uuid:pk>/preferences/", labels.PreferencesView.as_view()),
     path("api/v1/profiles/<uuid:pk>/invitations/", labels.InvitationsView.as_view()),
     path("api/v1/profiles/<uuid:pk>/access/", labels.AccessView.as_view()),

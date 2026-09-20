@@ -14,7 +14,7 @@ function Sticker({
   return (
     <div className="sticker">
       <div className="sticker-brand">
-        nowearnow<span aria-hidden="true">✿</span>
+        <img className="sticker-logo" src="/branding/nowearnow-return-tag.svg" alt="nowearnow" />
       </div>
       <img
         src={label.qr_url}

@@ -220,3 +220,113 @@ class LabelFlowTests(TestCase):
         self.other_access.save()
         self.client.force_login(self.other)
         self.assertEqual(self.client.get("/api/v1/inbox/").json(), [])
+
+
+class FamilyManagementTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.owner = User.objects.create_user("manager", email_verified=True)
+        self.other = User.objects.create_user("guardian")
+        self.client.force_login(self.owner)
+        self.family = Profile.objects.create(name="Family", kind="family")
+        self.child = Profile.objects.create(name="Child", kind="child")
+        for profile in [self.family, self.child]:
+            Access.objects.create(profile=profile, user=self.owner, controller=True)
+        self.label = Label.objects.create(profile=self.child, print_text="Printed")
+
+    def test_memberships_do_not_grant_access_or_disclose_hidden_members(self):
+        path = f"/api/v1/families/{self.family.pk}/members/"
+        self.assertEqual(self.client.post(path, {"profile": str(self.child.pk)}).status_code, 201)
+        Access.objects.create(profile=self.family, user=self.other)
+        self.client.force_login(self.other)
+        profiles = self.client.get("/api/v1/profiles/").json()
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(profiles[0]["members"], [])
+        self.assertEqual(self.client.get("/api/v1/objects/").json(), [])
+        self.assertEqual(self.client.post(path, {"profile": str(self.child.pk)}).status_code, 403)
+
+    def test_child_can_belong_to_multiple_families_without_changing_access(self):
+        from .models import FamilyMembership
+
+        second = Profile.objects.create(name="Second family", kind="family")
+        Access.objects.create(profile=second, user=self.owner, controller=True)
+        for family in [self.family, second]:
+            self.assertEqual(
+                self.client.post(
+                    f"/api/v1/families/{family.pk}/members/",
+                    {"profile": str(self.child.pk)},
+                ).status_code,
+                201,
+            )
+        self.assertEqual(FamilyMembership.objects.filter(member=self.child).count(), 2)
+        self.assertEqual(Access.objects.filter(profile=self.child).count(), 1)
+        self.assertEqual(
+            self.client.delete(
+                f"/api/v1/families/{second.pk}/members/{self.child.pk}/"
+            ).status_code,
+            204,
+        )
+        self.assertTrue(Access.objects.filter(profile=self.child, user=self.owner).exists())
+
+    def test_archiving_disables_labels_alerts_and_pending_invitations(self):
+        access = Access.objects.get(profile=self.child, user=self.owner)
+        access.email_alerts = True
+        access.save()
+        report = Report.objects.create(label=self.label, submission_id=uuid.uuid4(), message="Here")
+        delivery = Delivery.objects.create(report=report, access=access)
+        Invitation.objects.create(profile=self.child, created_by=self.owner, email="a@example.test")
+        path = f"/api/v1/profiles/{self.child.pk}/"
+        self.assertEqual(
+            self.client.patch(path, {"archived": True}, format="json").status_code, 200
+        )
+        self.label.refresh_from_db()
+        access.refresh_from_db()
+        delivery.refresh_from_db()
+        self.assertFalse(self.label.active)
+        self.assertFalse(access.email_alerts)
+        self.assertEqual(delivery.status, "skipped")
+        self.assertFalse(Invitation.objects.exists())
+        self.assertEqual(self.client.get(f"/api/v1/scan/{self.label.token}/").status_code, 404)
+        self.assertEqual(
+            self.client.post(
+                "/api/v1/objects/", {"profile": str(self.child.pk), "name": "Bag", "kind": "item"}
+            ).status_code,
+            404,
+        )
+        self.client.patch(path, {"archived": False}, format="json")
+        self.label.refresh_from_db()
+        self.assertFalse(self.label.active)
+        self.assertTrue(Report.objects.filter(pk=report.pk).exists())
+
+    def test_only_controller_can_rename_archive_and_names_stay_private(self):
+        path = f"/api/v1/profiles/{self.child.pk}/"
+        Access.objects.create(profile=self.child, user=self.other)
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.patch(path, {"name": "New"}).status_code, 403)
+        self.assertEqual(self.client.patch(path, {"archived": True}).status_code, 403)
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.patch(path, {"name": "New"}).status_code, 200)
+        self.label.refresh_from_db()
+        self.assertEqual(self.label.print_text, "Printed")
+        self.assertEqual(
+            self.client.get(f"/api/v1/scan/{self.label.token}/").json(), {"public_text": ""}
+        )
+        self.client.patch(f"/api/v1/profiles/{self.family.pk}/", {"archived": True})
+        self.child.refresh_from_db()
+        self.assertFalse(self.child.archived)
+
+    def test_cancelled_invitation_cannot_be_accepted(self):
+        self.other.email = "guardian@example.test"
+        self.other.email_verified = True
+        self.other.save()
+        invitation = Invitation.objects.create(
+            profile=self.child, created_by=self.owner, email=self.other.email
+        )
+        path = f"/api/v1/profiles/{self.child.pk}/invitations/"
+        self.assertEqual(len(self.client.get(path).json()), 1)
+        self.assertEqual(self.client.delete(f"{path}{invitation.pk}/").status_code, 204)
+        self.client.force_login(self.other)
+        self.assertEqual(
+            self.client.post(f"/api/v1/invitations/{invitation.pk}/accept/").status_code, 404
+        )

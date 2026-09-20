@@ -33,7 +33,11 @@ class PublicAuthView(APIView):
 
 
 def account(user):
-    return {"username": user.username, "email_verified": user.email_verified}
+    return {
+        "username": user.username,
+        "email_verified": user.email_verified,
+        "is_staff": user.is_staff,
+    }
 
 
 class SessionView(APIView):

@@ -1,6 +1,18 @@
 # Current project status
 
-Updated: 2026-09-20.
+Updated: 2026-09-21.
+
+## Brand exploration
+- Three NoWearNow raster logo concepts saved in `output/branding/`, with generation
+  prompts: return tag, school jumper, folded-label N. Visually reviewed for wording
+  and parent-friendly presentation. No website integration or code changes.
+- User selected the return tag. Cleaned vector SVG saved as
+  `output/branding/nowearnow-return-tag.svg`, with outlined lettering, transparent
+  background and flat fills. XML/path-only validation and rendered visual review passed.
+- Next: integrate the selected logo if requested and verify small-size/print use.
+- Standalone symbol also saved as `output/branding/nowearnow-return-tag-icon.svg`;
+  transparent path-only SVG, XML validated and rendered for visual inspection.
+  Code checks were not rerun for these image/document-only additions.
 
 ## Implemented locally
 - Registration/login/logout with Django sessions, password validation, CSRF and throttling.
